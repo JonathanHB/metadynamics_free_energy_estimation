@@ -155,7 +155,7 @@ def timescale_vs_spatial_discretization(system, kB, T, lag_time, n_range, tolera
             free energy as a function of the coordinate (spatially continuous)
         D: float
             diffusion coefficient, assumed to be uniform
-            
+
     kB: float
         Boltzmann's constant
     T: float
@@ -202,7 +202,7 @@ def timescale_vs_spatial_discretization(system, kB, T, lag_time, n_range, tolera
     n_min = -1
     for ni, ti in zip(n_all, first_implied_timescales):
         if abs(first_implied_timescales[-1]-ti)/first_implied_timescales[-1] < tolerance:
-            ni_min = ni
+            n_min = ni
             print(f"implied timescale converged to within {100*tolerance}% of the value calculated for {n_range[1]} bins at {ni} bins")
             break
 
@@ -215,8 +215,8 @@ def timescale_vs_spatial_discretization(system, kB, T, lag_time, n_range, tolera
     plt.xlabel("number of bins")
     plt.ylabel("first implied timescale")
 
-    plt.axvline(ni_min, linestyle="dashed", color = "black")
+    plt.axvline(n_min, linestyle="dashed", color = "black")
     plt.axhline(first_implied_timescales[-1], linestyle="dotted", color = "grey")
-
+    plt.show()
 
     return n_min
