@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 
 
-def energies_and_prefactors_to_tpm(g_eq, prefactors, kB, T, lag_time):
+def energies_and_prefactors_to_tpm(g_eq, prefactors, kT, lag_time):
     """
     Generate a markov state model discrete-time transition probability matrix (TPM) 
     from equilibrium free energies and a continuous-time prefactor matrix. 
@@ -21,10 +21,8 @@ def energies_and_prefactors_to_tpm(g_eq, prefactors, kB, T, lag_time):
         The instantaneous rate prefactors for the transition between each pair of states. 
         This should be symmetric if detailed balance is to be obeyed.
         The diagonal entries are not used (see comments in function), and all others should be nonnegative.
-    kB: float
-        Boltzmann's constant
-    T: float
-        Temperature
+    kT: float
+        Boltzmann's constant times the temperature
     lag_time: float
         Lag time used to generate a discrete time transition probability matrix
 
@@ -39,7 +37,7 @@ def energies_and_prefactors_to_tpm(g_eq, prefactors, kB, T, lag_time):
     dg_eq = g_eq - g_eq[:,None] 
 
     #matrix of instantaneous rate constants for each pair of states
-    rates = np.multiply(prefactors, np.exp(dg_eq/(2*kB*T))) 
+    rates = np.multiply(prefactors, np.exp(dg_eq/(2*kT))) 
 
     #Each row of an instantaneous rate constant matrix holds the 
     # coefficients of the differential equation for the rate of change in the population of one state.
@@ -128,18 +126,19 @@ def spatially_discretize_linear_system(system, n):
 
 
 
-def spatially_temporally_discretize_linear_system(system, n, kB, T, lag_time):
+def spatially_temporally_discretize_linear_system(system, n, kT, lag_time):
     """
     A wrapper function for spatially_discretize_linear_system() and energies_and_prefactors_to_tpm()
     """
     g_eq, prefactors, xb = spatially_discretize_linear_system(system, n)
-    tpm = energies_and_prefactors_to_tpm(g_eq, prefactors, kB, T, lag_time)
+    tpm = energies_and_prefactors_to_tpm(g_eq, prefactors, kT, lag_time)
 
     return tpm
 
 
-
-def timescale_vs_spatial_discretization(system, kB, T, lag_time, n_range, tolerance=0.05):
+#TODO write a similar method to analyze timescales as a function of lag time 
+# to confirm that we are discretizing time correctly
+def timescale_vs_spatial_discretization(system, kT, lag_time, n_range, tolerance=0.05):
     """
     Calculate first implied timescale as a function of the number of bins
     to determine how many bins we need to represent the system's dynamics
@@ -156,10 +155,8 @@ def timescale_vs_spatial_discretization(system, kB, T, lag_time, n_range, tolera
         D: float
             diffusion coefficient, assumed to be uniform
 
-    kB: float
-        Boltzmann's constant
-    T: float
-        Temperature
+    kT: float
+        Boltzmann's constant times the temperature
     lag_time: float
         Lag time used to generate a discrete time transition probability matrix
     n_range: tuple of two ints
@@ -185,7 +182,7 @@ def timescale_vs_spatial_discretization(system, kB, T, lag_time, n_range, tolera
     first_implied_timescales = []
 
     for n in range(n_range[0], n_range[1]):
-        tpm = spatially_temporally_discretize_linear_system(system, n, kB, T, lag_time)
+        tpm = spatially_temporally_discretize_linear_system(system, n, kT, lag_time)
 
         eigenvalues = deeptime.markov.tools.analysis.eigenvalues(tpm)
         if np.imag(eigenvalues[1]) != 0:
@@ -199,6 +196,8 @@ def timescale_vs_spatial_discretization(system, kB, T, lag_time, n_range, tolera
     #calculate minimum number of bins required for implied timescale to be near its asymptote 
     # (how near being determined by tolerance)
 
+    #TODO for greater robustness to weird behavior at low bin numbers we should count backwards 
+    # from large numbers and stop the first time the implied timescale is out of tolerance
     n_min = -1
     for ni, ti in zip(n_all, first_implied_timescales):
         if abs(first_implied_timescales[-1]-ti)/first_implied_timescales[-1] < tolerance:
@@ -220,3 +219,38 @@ def timescale_vs_spatial_discretization(system, kB, T, lag_time, n_range, tolera
     plt.show()
 
     return n_min
+
+
+def first_implied_timescale(tpm):
+    """ 
+    Calculate the first implied timescale of a transition probability matrix, 
+    which is equal to the MFPT of the slowest process described by the MSM:
+    solve: 1/2 = lambda^mfpt = e^(ln(lambda)*mfpt)
+    --> ln(1/2) = ln(lambda)*mfpt
+    --> -ln(2) = ln(lambda)*mfpt
+    --> mfpt = -ln(2)/ln(lambda)
+
+    Parameters
+    ----------
+    tpm: 2d square matrix
+        an MSM transition probability matrix 
+        oriented such that dynamics are propagated by right multiplication:
+        x_(t+t_lag)=Px_t, where P is the TPM and x is a column vector
+
+    Returns
+    -------
+    implied_timescale: float
+        the first implied timescale of the transition probability matrix
+        in units of the TPM's lag time
+
+    """
+
+    eigenvalues = deeptime.markov.tools.analysis.eigenvalues(tpm)
+    if np.imag(eigenvalues[1]) != 0:
+        print(f"error: complex eigenvalue {eigenvalues[1]}")
+        return 0
+
+    implied_timescale = -1/np.log(np.real(eigenvalues[1]))
+    print(f"implied_timescale: {implied_timescale} (lag_times)")
+
+    return implied_timescale
