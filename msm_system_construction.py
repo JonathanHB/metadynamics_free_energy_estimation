@@ -251,6 +251,6 @@ def first_implied_timescale(tpm):
         return 0
 
     implied_timescale = -1/np.log(np.real(eigenvalues[1]))
-    print(f"implied_timescale: {implied_timescale} (lag_times)")
+    print(f"implied_timescale: {implied_timescale} lag_times")
 
     return implied_timescale

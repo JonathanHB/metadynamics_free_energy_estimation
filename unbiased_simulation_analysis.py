@@ -52,7 +52,7 @@ def sigma_and_timescales_from_unbiased_simulation(trj, trj_frame_interval, n_bin
     #transition probability matrix
     p = c/np.sum(c, axis=0, keepdims=True)
 
-    #reweight to get diffustion coefficient by canceling out 
+    #reweight to get diffusion coefficient by canceling out 
     # the effect of equilibrium free energy differences on transition probabilities
     thermodynamic_reweight_matrix = np.outer(1/np.sqrt(eq_pops), np.sqrt(eq_pops))
     reweighted_tpm = np.multiply(p, thermodynamic_reweight_matrix)
@@ -74,8 +74,11 @@ def sigma_and_timescales_from_unbiased_simulation(trj, trj_frame_interval, n_bin
 
     #in units of 1/trj_frame_interval
     prefactor = np.average(prefactors, weights=counts)
-    print(f"Estimated discrete time rate prefactor between adjacent states: {prefactor} per frame save interval ({trj_frame_interval})**-1")
+    print(f"Estimated discrete time rate prefactor between adjacent states: {prefactor} per frame save interval")
 
+
+    #TODO we're missing a factor of something here; work out analytically what this time 
+    # should be using the formulas used to spatially discretize the system to begin with and the MSD relation
     #----------------------------
     #timescale of diffusing the width of the starting well
     # in units of 1/trj_frame_interval
@@ -84,8 +87,8 @@ def sigma_and_timescales_from_unbiased_simulation(trj, trj_frame_interval, n_bin
     #----------------------------
     #timescale of diffusing across the entire CV range
     # in units of trj_frame_interval
-    system_diffusion_timescale = n_bins**2/prefactor
-    print(f"Estimated diffusive timescale: {system_diffusion_timescale} (frame save interval)")
+    system_diffusion_timescale = (n_bins/2)**2/prefactor
+    print(f"Estimated whole-system diffusive timescale: {system_diffusion_timescale} frame save intervals")
 
 
     return sigma, well_diffusion_timescale, system_diffusion_timescale
@@ -96,7 +99,7 @@ def sigma_and_timescales_from_unbiased_simulation(trj, trj_frame_interval, n_bin
 #                     SET METADYNAMICS PARAMETERS FROM UNBIASED SIMULATION
 ################################################################################################
 
-#TODO: should we use a deeptime MSM object instead of passing around a numpy TPM matrix?
+
 def unbiased_simulation_to_mtd_params(tpm, n_bins, init_state, lag_time, n_steps=-1):
     """
     Run an unbiased simulation,
@@ -107,6 +110,7 @@ def unbiased_simulation_to_mtd_params(tpm, n_bins, init_state, lag_time, n_steps
     ----------
     tpm: n x n matrix of float
         The transition probability matrix for the system described by the parameters, discretized at the lag time.
+        TODO: should we use a deeptime MSM object instead of passing around a numpy TPM matrix?
     n_bins: int
         the number of discrete states in the system 
     init_state: int
