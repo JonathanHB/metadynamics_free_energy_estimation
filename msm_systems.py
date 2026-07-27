@@ -2,6 +2,33 @@ import numpy as np
 
 
 #system
+class flat:
+    def __init__(self, D):
+        self.D = D
+
+    def G(self, x):
+        return 0
+
+    def x_minimum(self):
+        return 0
+    
+    def depth(self):
+        return 0
+    
+    def stdev(self):
+        return -1
+
+    def well_volume(self):
+        return 0
+    
+    def sec_deriv_bottom(self):
+        return 0
+
+    def bounds(self):
+        return (-1, 1)
+
+
+#system
 class double_well:
     def __init__(self, A, B, D):
         self.A = A

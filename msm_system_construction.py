@@ -34,10 +34,10 @@ def energies_and_prefactors_to_tpm(g_eq, prefactors, kT, lag_time):
     """
 
     #matrix of equilibrium delta G values for each pair of states
-    dg_eq = g_eq - g_eq[:,None] 
+    dg_eq = g_eq - g_eq[:,None]
 
     #matrix of instantaneous rate constants for each pair of states
-    rates = np.multiply(prefactors, np.exp(dg_eq/(2*kT))) 
+    rates = np.multiply(prefactors, np.exp(dg_eq/(2*kT)))
 
     #Each row of an instantaneous rate constant matrix holds the 
     # coefficients of the differential equation for the rate of change in the population of one state.
@@ -53,9 +53,9 @@ def energies_and_prefactors_to_tpm(g_eq, prefactors, kT, lag_time):
     # so we set them to 0 to enable summing of the off-diagonal rate constants to get the total rate out of each state
     np.fill_diagonal(rates, 0)
     #total rate out of each state
-    diag_rates = np.sum(rates, axis=0) 
+    diag_rates = np.sum(rates, axis=0)
     #set the self-transition rates to the total rate out of each state
-    np.fill_diagonal(rates, -diag_rates) 
+    np.fill_diagonal(rates, -diag_rates)
     
     #calculate the discrete time transition probability matrix for the given lag time by exponentiating the rate matrix
     tpm = expm(rates*lag_time)
@@ -136,6 +136,7 @@ def spatially_temporally_discretize_linear_system(system, n, kT, lag_time):
     return tpm
 
 
+
 #TODO write a similar method to analyze timescales as a function of lag time 
 # to confirm that we are discretizing time correctly
 def timescale_vs_spatial_discretization(system, kT, lag_time, n_range, tolerance=0.05):
@@ -184,13 +185,15 @@ def timescale_vs_spatial_discretization(system, kT, lag_time, n_range, tolerance
     for n in range(n_range[0], n_range[1]):
         tpm = spatially_temporally_discretize_linear_system(system, n, kT, lag_time)
 
-        eigenvalues = deeptime.markov.tools.analysis.eigenvalues(tpm)
-        if np.imag(eigenvalues[1]) != 0:
-            print(f"error: complex eigenvalue {eigenvalues[1]}")
-            return 0
+        # eigenvalues = deeptime.markov.tools.analysis.eigenvalues(tpm)
+        # if np.imag(eigenvalues[1]) != 0:
+        #     print(f"error: complex eigenvalue {eigenvalues[1]}")
+        #     return 0
 
+        # n_all.append(n)
+        # first_implied_timescales.append(-lag_time/np.log(np.real(eigenvalues[1])))
         n_all.append(n)
-        first_implied_timescales.append(-lag_time/np.log(np.real(eigenvalues[1])))
+        first_implied_timescales.append(lag_time*first_implied_timescale(tpm))
 
     #-------------------------------------------------
     #calculate minimum number of bins required for implied timescale to be near its asymptote 
@@ -219,6 +222,7 @@ def timescale_vs_spatial_discretization(system, kT, lag_time, n_range, tolerance
     plt.show()
 
     return n_min
+
 
 
 def first_implied_timescale(tpm):
@@ -251,6 +255,6 @@ def first_implied_timescale(tpm):
         return 0
 
     implied_timescale = -1/np.log(np.real(eigenvalues[1]))
-    print(f"implied_timescale: {implied_timescale} lag_times")
+    #print(f"implied_timescale: {implied_timescale} lag_times")
 
     return implied_timescale

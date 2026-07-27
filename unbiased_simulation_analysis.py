@@ -1,10 +1,29 @@
 import numpy as np
 import msm_system_construction
 import deeptime as deeptime
+import matplotlib.pyplot as plt
 
 
+#Written by Gemini on 7/27/26 with prompt: 
+# "write me a function to keep only the nan-free rows and columns of a numpy matrix"
+# and then edited after I realized that that prompt was wrong
+def remove_nan_rows_cols_strict(matrix):
+    """Drops any row and any column that contains at least one NaN."""
+    # Mask for rows that are not all NaN
+    row_mask = ~np.isnan(matrix).all(axis=1)
+    
+    # Mask for columns that are not all NaN
+    col_mask = ~np.isnan(matrix).all(axis=0)
 
-def sigma_and_timescales_from_unbiased_simulation(trj, trj_frame_interval, n_bins):
+    #keep only states with both incoming and outgoing transitions
+    #since the output TPM must be square
+    combined_mask = row_mask & col_mask
+    
+    # Filter rows first, then filter columns
+    return matrix[combined_mask][:, combined_mask]
+
+
+def sigma_and_timescales_from_unbiased_simulation(trj, n_bins):
     """
     Calculate frame distribution width and diffusion timescales from an unbiased simulation trajectory
     These are usually used to set MTD tunable parameters
@@ -14,8 +33,6 @@ def sigma_and_timescales_from_unbiased_simulation(trj, trj_frame_interval, n_bin
     trj: 1d numpy array or list
         an unbiased simulation trajectory
         specifically the discrete state index of an unbiased simulation at evenly spaced time intervals
-    trj_frame_interval: float
-        the time interval between frames in the trajectory, assumed to be uniform
     n_bins: int
         the number of discrete states in the system 
 
@@ -32,12 +49,13 @@ def sigma_and_timescales_from_unbiased_simulation(trj, trj_frame_interval, n_bin
 
     """
 
-    #----------------------------
+    #1. ------------SIGMA----------------
     #width of starting well
     sigma = np.std(trj)
 
-    #----------------------------
-    #diffusion rate
+
+    #2. ------------BUILD MSM FROM INPUT TRAJECTORY---------------
+    
     bins = np.arange(-0.5, n_bins+0.5, 1)
 
     #equilibrium populations in each state, used for reweighting below
@@ -52,42 +70,80 @@ def sigma_and_timescales_from_unbiased_simulation(trj, trj_frame_interval, n_bin
     #transition probability matrix
     p = c/np.sum(c, axis=0, keepdims=True)
 
-    #reweight to get diffusion coefficient by canceling out 
+
+    #3. ------------WELL DIFFUSION TIMESCALE----------------
+    #timescale of equilibrating in the starting well
+
+    #collect the portion of the empirical TPM which has ergodic* sampling
+    #*this function removes states with no in or no out transitions but is not a rigorous test of connectedness or detailed balance
+    starting_well_tpm = remove_nan_rows_cols_strict(p)
+    if False:
+        plt.imshow(starting_well_tpm)
+        plt.colorbar()
+        plt.show()
+
+    #TODO there are other ways to calculate this using autocorrelation decay. Do they agree?
+    # in units of frame intervals
+    well_diffusion_timescale = msm_system_construction.first_implied_timescale(starting_well_tpm)
+
+
+    #4. ------------SYSTEM DIFFUSION TIMESCALE----------------
+    #Estimate what the system MFPT would be if motion were purely diffusive
+
+    #Extract the diffusive component of the TPM by cancelling out
     # the effect of equilibrium free energy differences on transition probabilities
     thermodynamic_reweight_matrix = np.outer(1/np.sqrt(eq_pops), np.sqrt(eq_pops))
     reweighted_tpm = np.multiply(p, thermodynamic_reweight_matrix)
     if False:
+        plt.imshow(p)
+        plt.colorbar()
+        plt.show()
         plt.imshow(reweighted_tpm)
+        plt.colorbar()
         plt.show()
 
-    #calculate the average probability of transitioning to a neighboring state, 
-    # assuming a uniform diffusion coefficient and bin width
-    prefactors = []
-    counts = [] #for weighting
-    for i in range(n_bins-1):
-        if c[i, i+1] > 0: #avoid adding nans
-            prefactors.append(reweighted_tpm[i, i+1])
-            counts.append(c[i, i+1])
-        if c[i+1, i] > 0: #avoid adding nans
-            prefactors.append(reweighted_tpm[i+1, i])
-            counts.append(c[i+1, i])
+    #collect the prefactors at each distance from the main diagonal and average them
+    prefactors_by_diagonal_distance = [[] for _ in range(n_bins)]
+    counts_by_diagonal_distance = [[] for _ in range(n_bins)]
 
-    #in units of 1/trj_frame_interval
-    prefactor = np.average(prefactors, weights=counts)
-    print(f"Estimated discrete time rate prefactor between adjacent states: {prefactor} per frame save interval")
+    for i in range(n_bins):
+        for j in range(n_bins):
+            if not np.isnan(reweighted_tpm[i,j]):
+                prefactors_by_diagonal_distance[int(abs(i-j))].append(reweighted_tpm[i,j])
+                counts_by_diagonal_distance[int(abs(i-j))].append(c[i,j])
 
+    mean_prefactors_by_diagonal_distance = np.zeros(n_bins)
 
-    #TODO we're missing a factor of something here; work out analytically what this time 
-    # should be using the formulas used to spatially discretize the system to begin with and the MSD relation
-    #----------------------------
-    #timescale of diffusing the width of the starting well
-    # in units of 1/trj_frame_interval
-    well_diffusion_timescale = sigma**2/prefactor
+    for i in range(n_bins):
+        if np.sum(counts_by_diagonal_distance[i])>0:
+            mean_prefactors_by_diagonal_distance[i] = np.average(prefactors_by_diagonal_distance[i], weights=counts_by_diagonal_distance[i])
 
-    #----------------------------
-    #timescale of diffusing across the entire CV range
-    # in units of trj_frame_interval
-    system_diffusion_timescale = (n_bins/2)**2/prefactor
+    #construct a synthetic TPM using the averages from the real one
+    #to describe a purely diffusive system with the same size and diffusion coefficient as the real one
+    
+    #the width of the synthetic landscape is reduced to avoid including high-energy regions at the edges which 
+    #have little effect on the real MFPT but would affect the diffusive one
+    n_synth_bins = int(max((n_bins-2*np.mean(trj), n_bins-2*(n_bins-np.mean(trj)))))
+
+    flat_landscape_tpm = np.zeros((n_synth_bins, n_synth_bins))
+
+    for k in range(-n_synth_bins+1, n_synth_bins):
+        flat_landscape_tpm += np.diag([mean_prefactors_by_diagonal_distance[int(abs(k))]] * (n_synth_bins - int(abs(k))), k=k)
+
+    #normalize 
+    # because of how the transition probabilities were extracted from real data, 
+    # the system should be close to normalized to start with, 
+    # but nothing in the construction procedure guarantees it will be exactly normalized
+    flat_landscape_tpm/=np.sum(flat_landscape_tpm, axis=0, keepdims=True)
+
+    if False:
+        plt.imshow(flat_landscape_tpm)
+        plt.colorbar()
+        plt.show()
+
+    #timescale of diffusing across the CV range between the estimated main well positions
+    # in units of frame intervals
+    system_diffusion_timescale = msm_system_construction.first_implied_timescale(flat_landscape_tpm)
     print(f"Estimated whole-system diffusive timescale: {system_diffusion_timescale} frame save intervals")
 
 
@@ -136,8 +192,16 @@ def unbiased_simulation_to_mtd_params(tpm, n_bins, init_state, lag_time, n_steps
     """
 
     #-------------------------------------------------------
+    #plot neighbor transition rates for debugging
+    if False:
+        plt.plot([tpm[i,i+1] for i in range(len(tpm)-1)])
+        plt.title("actual uncorrected rates")
+        plt.show()
+
+    #-------------------------------------------------------
     #calculate implied timescale from MSM
 
+    #in units of MSM lag time
     implied_timescale = msm_system_construction.first_implied_timescale(tpm)
 
     if n_steps == -1:
@@ -147,18 +211,23 @@ def unbiased_simulation_to_mtd_params(tpm, n_bins, init_state, lag_time, n_steps
     #-------------------------------------------------------
     #SIMULATE
 
-    msm = deeptime.markov.msm.MarkovStateModel(tpm.transpose())
-    #much faster than even my clean looking numpy implementation
-    #dt = 1 means that trajectory frames are saved every MSM lag time
     #note that kT does not explicitly appear here because it is already baked into the TPM
-    trj = msm.simulate(n_steps=n_steps, start = init_state, dt=1) 
+    msm = deeptime.markov.msm.MarkovStateModel(tpm.transpose())
+
+    #dt = 1 means that trajectory frames are saved every MSM lag time
+    dt=1
+
+    #much faster than even my clean looking numpy implementation
+    trj = msm.simulate(n_steps = n_steps, start = init_state, dt = dt) 
 
     #-------------------------------------------------------
     #calculate accessible well width and timescales
-    well_frame_std, well_diffusion_timescale, system_diffusion_timescale = sigma_and_timescales_from_unbiased_simulation(trj=trj, trj_frame_interval=lag_time, n_bins=n_bins)
+    #timescales are returned in units of the frame interval, which is lag_time*dt
+    well_frame_std, well_diffusion_timescale, system_diffusion_timescale = sigma_and_timescales_from_unbiased_simulation(trj=trj, n_bins=n_bins)
 
     #-------------------------------------------------------
     #estimate free energy barrier based on how much longer the MFPT is than the diffusion time
+    #this is just for user information and is not actually used to calculate the function return data
     est_barrier = np.log(implied_timescale/system_diffusion_timescale) #in units of kT
     print("Estimated barrier from MFPT and diffusion in initial state: ", est_barrier, " kT")
 
@@ -178,9 +247,10 @@ def unbiased_simulation_to_mtd_params(tpm, n_bins, init_state, lag_time, n_steps
 
     omega_g = 0.1
 
-    tau_g = well_diffusion_timescale
+    tau_g = well_diffusion_timescale*lag_time*dt #in real time units
 
-    delta_T = 2*np.log(implied_timescale/system_diffusion_timescale) - 1
+    #dt is included to convert the system diffusion timescale to units of lag time to match the numerator.
+    delta_T = 2*np.log(implied_timescale/(system_diffusion_timescale*dt)) - 1 
 
 
     return sigma, omega_g, tau_g, delta_T
