@@ -92,13 +92,17 @@ def sigma_and_timescales_from_unbiased_simulation(trj, n_bins):
 
     #Extract the diffusive component of the TPM by cancelling out
     # the effect of equilibrium free energy differences on transition probabilities
+    # however this is only reliable for transitions close to the main diagonal
     thermodynamic_reweight_matrix = np.outer(1/np.sqrt(eq_pops), np.sqrt(eq_pops))
     reweighted_tpm = np.multiply(p, thermodynamic_reweight_matrix)
     if False:
-        plt.imshow(p)
+        plt.imshow(p, interpolation='nearest')
         plt.colorbar()
         plt.show()
-        plt.imshow(reweighted_tpm)
+        plt.imshow(reweighted_tpm, interpolation='nearest')
+        plt.colorbar()
+        plt.show()
+        plt.imshow(starting_well_tpm, interpolation='nearest')
         plt.colorbar()
         plt.show()
 
@@ -118,6 +122,21 @@ def sigma_and_timescales_from_unbiased_simulation(trj, n_bins):
         if np.sum(counts_by_diagonal_distance[i])>0:
             mean_prefactors_by_diagonal_distance[i] = np.average(prefactors_by_diagonal_distance[i], weights=counts_by_diagonal_distance[i])
 
+    #we only actually use the prefactor from the transitions adjacent to the diagonal
+    #because the reweighting of the others is unreliable
+    implied_prefactors_from_neighbors = np.zeros(n_bins)
+    implied_prefactors_from_neighbors[1] = mean_prefactors_by_diagonal_distance[1]
+
+    for i in range(2, n_bins):
+        implied_prefactors_from_neighbors[i] = implied_prefactors_from_neighbors[1]**i
+
+    # plt.plot(mean_prefactors_by_diagonal_distance)
+    # plt.plot(implied_prefactors_from_neighbors)
+    # plt.show()
+
+    #print(f"replacing diagonal mean prefactor {mean_prefactors_by_diagonal_distance[0]}, which can't be effectively reweighted")
+
+
     #construct a synthetic TPM using the averages from the real one
     #to describe a purely diffusive system with the same size and diffusion coefficient as the real one
     
@@ -128,13 +147,30 @@ def sigma_and_timescales_from_unbiased_simulation(trj, n_bins):
     flat_landscape_tpm = np.zeros((n_synth_bins, n_synth_bins))
 
     for k in range(-n_synth_bins+1, n_synth_bins):
-        flat_landscape_tpm += np.diag([mean_prefactors_by_diagonal_distance[int(abs(k))]] * (n_synth_bins - int(abs(k))), k=k)
+        flat_landscape_tpm += np.diag([implied_prefactors_from_neighbors[int(abs(k))]] * (n_synth_bins - int(abs(k))), k=k)
+
+
+    # plt.plot(np.sum(flat_landscape_tpm, axis=0))
+    # plt.show()
+
+    # plt.imshow(flat_landscape_tpm, interpolation='nearest')
+    # plt.colorbar()
+    # plt.show()
 
     #normalize 
     # because of how the transition probabilities were extracted from real data, 
     # the system should be close to normalized to start with, 
     # but nothing in the construction procedure guarantees it will be exactly normalized
-    flat_landscape_tpm/=np.sum(flat_landscape_tpm, axis=0, keepdims=True)
+    flat_landscape_tpm += np.diag(1 - np.sum(flat_landscape_tpm, axis=0))
+
+    # plt.plot(np.sum(flat_landscape_tpm, axis=0))
+    # plt.show()
+
+    # plt.imshow(flat_landscape_tpm, interpolation='nearest')
+    # plt.colorbar()
+    # plt.show()
+
+    print(np.trace(flat_landscape_tpm)/n_synth_bins)
 
     if False:
         plt.imshow(flat_landscape_tpm)
@@ -205,7 +241,7 @@ def unbiased_simulation_to_mtd_params(tpm, n_bins, init_state, lag_time, n_steps
     implied_timescale = msm_system_construction.first_implied_timescale(tpm)
 
     if n_steps == -1:
-        n_steps = int(implied_timescale//100)
+        n_steps = int(implied_timescale//1000)
         print(f"running for {n_steps} steps")
 
     #-------------------------------------------------------
@@ -243,14 +279,15 @@ def unbiased_simulation_to_mtd_params(tpm, n_bins, init_state, lag_time, n_steps
     # by Giovanni Bussi and Davide Branduardi
     # Section: Metadynamics How-To
 
-    sigma = well_frame_std
+    sigma = well_frame_std/3
 
     omega_g = 0.1
 
-    tau_g = well_diffusion_timescale*lag_time*dt #in real time units
+    #in real time units
+    tau_g = well_diffusion_timescale*lag_time*dt
 
     #dt is included to convert the system diffusion timescale to units of lag time to match the numerator.
     delta_T = 2*np.log(implied_timescale/(system_diffusion_timescale*dt)) - 1 
 
 
-    return sigma, omega_g, tau_g, delta_T
+    return (sigma, omega_g, tau_g, delta_T)

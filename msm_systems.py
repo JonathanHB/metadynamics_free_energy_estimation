@@ -65,17 +65,19 @@ class double_well:
 
 #system
 class cosine_well:
-    def __init__(self, A, B, C, D):
+    def __init__(self, A, B, C, D, E):
         self.A = A
         self.B = B
         self.C = C
-        self.D = D
+        self.E = E
+
+        self.D = D #diffusion
 
     def G(self, x):
-        return self.A * x**4 - self.B*np.cos(self.C*x)
+        return self.A * (x**4 - self.B*x**2 + self.C*np.cos(self.E*x))
 
     def x_minimum(self):
-        return 0
+        return -5
     
     def depth(self):
         return 2*abs(self.B)
